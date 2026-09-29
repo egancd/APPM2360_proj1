@@ -1,19 +1,4 @@
-%% APPM 2360 Project 1 - Tribble Population Modeling
-%  Model:  dy/dt = f(y) = a*y - b*y^2 - H(y),   H(y) = p*y^3/(y^3 + q)
-%  t in days, y in hundreds of tribbles.
-%
-%  Sections:
-%    Q4a - check of the analytic logistic solution (p = 0) against ode45
-%    Q6  - plots of f(y) and equilibrium solutions (fzero)
-%    Q7  - direction fields with overlaid solutions (quiver + ode45)
-%    Q8  - stability table and basins of attraction
-%    Q9  - numbers that support the stocking recommendation
-%    Q10 - seasonal hunting H(t,y) = p*y^3/(q+y^3)*|sin(pi*t/365)|
-%
-%  Run the whole script (or one section at a time with "Run Section").
-%  Figures are also saved as PNG files in the current folder.
-
-clear; close all; clc;
+clc; clear; close all;
 
 %% Parameters
 a     = 0.75;               % 1/day
@@ -22,39 +7,41 @@ q     = 1.25;               % (hundreds of tribbles)^3
 bvals = [0.005 0.05 0.10];  % 1/(hundreds of tribbles * day)
 names = {'brown (b = 0.005)', 'white (b = 0.05)', 'grey (b = 0.10)'};
 
-H    = @(y)   p*y.^3 ./ (y.^3 + q);          % hunting term
-f    = @(y,b) a*y - b*y.^2 - H(y);           % right-hand side of (1)
-dfdy = @(y,b) (f(y+1e-6,b) - f(y-1e-6,b)) / 2e-6;   % numerical f'(y)
+H    = @(y)   p*y.^3 ./ (y.^3 + q);                  % hunting term
+f    = @(y,b) a*y - b*y.^2 - H(y);                   % right-hand side of (1)
+dfdy = @(y,b) (f(y+1e-6,b) - f(y-1e-6,b)) / 2e-6;    % numerical f'(y)
 
-odeopts = odeset('RelTol',1e-8,'AbsTol',1e-10);
+options = odeset('AbsTol',1e-10,'RelTol',1e-7);
 
-%% Q4a - Analytic logistic solution (H = 0) vs. numerical solution
 %  y(t) = (a/b) / (1 + (a/(b*y0) - 1) * exp(-a*t)),  y -> a/b as t -> inf
-b  = 0.05;  y0 = 2;  tspan = [0 20];
-yLogistic = @(t) (a/b) ./ (1 + (a/(b*y0) - 1)*exp(-a*t));
-[tn, yn]  = ode45(@(t,y) a*y - b*y.^2, tspan, y0, odeopts);
+b  = 0.05;
+t0 = 0;  tf = 20;  h = 0.01;  tt = t0:h:tf;          % as in single_ode45.m
+y0 = [2 20];                                         % one below, one above a/b
+yLogistic = @(t,y0) (a/b) ./ (1 + (a./(b*y0) - 1).*exp(-a*t));
 
-figure('Name','Q4a');
-plot(tn, yn, 'b-', 'LineWidth', 2); hold on;
-tt = linspace(tspan(1), tspan(2), 40);
-plot(tt, yLogistic(tt), 'ro', 'MarkerSize', 5);
-plot(tspan, [a/b a/b], 'k--');
+[t, soln] = ode45(@(t,y) a*y - b*y.^2, tt, y0, options);
+
+figure(1); hold on;
+for i = 1:length(y0)
+    plot(t, soln(:,i), 'b-', 'LineWidth', 2);
+    plot(t(1:100:end), yLogistic(t(1:100:end), y0(i)), 'ro', 'MarkerSize', 5);
+end
+plot([t0 tf], [a/b a/b], 'k--');
 xlabel('t (days)'); ylabel('y (hundreds of tribbles)');
-title(sprintf('Logistic model, no hunting (b = %.2f, y_0 = %g)', b, y0));
-legend('ode45', 'analytic solution', 'carrying capacity a/b', 'Location', 'southeast');
-grid on;
+title(sprintf('Logistic model, no hunting (b = %.2f)', b));
+legend('ode45', 'analytic solution', 'Location', 'east'); grid on;
 saveas(gcf, 'Q4a_logistic_check.png');
-fprintf('Q4a: max |analytic - ode45| = %.2e\n\n', max(abs(yn - yLogistic(tn))));
+err = max(max(abs(soln - [yLogistic(t,y0(1)) yLogistic(t,y0(2))])));
+fprintf('Q4a: max |analytic - ode45| = %.2e\n\n', err);
 
-%% Q6 - Plot f(y) and find the equilibrium solutions
 eqs  = cell(1,3);    % equilibria for each b
 stab = cell(1,3);    % 'stable' / 'unstable'
 
-figure('Name','Q6','Position',[100 100 1200 650]);
+figure(2); set(gcf, 'Position', [100 100 1200 650]);
 for k = 1:3
     b = bvals(k);
 
-    % --- find equilibria: y = 0 plus every sign change of f on a fine grid
+    % find equilibria: y = 0 plus every sign change of f on a fine grid
     yGrid = linspace(1e-6, a/b + 5, 200000);   % f < 0 for all y > a/b
     fGrid = f(yGrid, b);
     idx   = find(fGrid(1:end-1).*fGrid(2:end) < 0);
@@ -64,14 +51,14 @@ for k = 1:3
     end
     eqs{k} = roots_k;
 
-    % --- classify by the sign of f'(y*)
+    % classify by the sign of f'(y*)
     s = cell(size(roots_k));
     for j = 1:numel(roots_k)
         if dfdy(roots_k(j), b) < 0, s{j} = 'stable'; else, s{j} = 'unstable'; end
     end
     stab{k} = s;
 
-    % --- full-range plot
+    % full-range plot
     yMax = 1.1*a/b;
     yy = linspace(0, yMax, 4000);
     subplot(2,3,k);
@@ -81,7 +68,7 @@ for k = 1:3
     xlabel('y (hundreds)'); ylabel('f(y)  (hundreds/day)');
     title(sprintf('f(y), b = %.3g', b)); grid on; xlim([0 yMax]);
 
-    % --- zoom near y = 0 so small equilibria are not missed
+    % zoom near y = 0 so small equilibria are not missed
     subplot(2,3,k+3);
     yz = linspace(0, 4, 2000);
     plot(yz, f(yz,b), 'b-', 'LineWidth', 1.5); hold on;
@@ -93,7 +80,6 @@ for k = 1:3
 end
 saveas(gcf, 'Q6_f_of_y.png');
 
-%% Q8(a) - Table of equilibria and their stability (printed to Command Window)
 fprintf('Q6/Q8(a): Equilibrium solutions of dy/dt = ay - by^2 - py^3/(y^3+q)\n');
 fprintf('%-8s %-14s %-12s %-12s %-10s\n', 'b', 'y* (hundreds)', 'y* (tribbles)', 'f''(y*)', 'stability');
 fprintf('%s\n', repmat('-', 1, 62));
@@ -105,9 +91,6 @@ for k = 1:3
     fprintf('\n');
 end
 
-%% Q8(b) - Basins of attraction of the stable equilibria (y0 >= 0)
-%  For y' = f(y), the basin of a stable y* runs between the neighbouring
-%  unstable equilibria (or to +infinity if there is none above it).
 fprintf('Q8(b): Basins of attraction (initial populations y0, any t0)\n');
 for k = 1:3
     e = eqs{k};  s = stab{k};
@@ -125,43 +108,43 @@ for k = 1:3
 end
 fprintf('\n');
 
-%% Q7 - Direction fields with overlaid solutions
-figure('Name','Q7','Position',[100 100 1300 420]);
-tEnd = [80 30 30];          % days shown (b = 0.005 needs longer: slow passage near y ~ 1-1.5)
+tEnd = [80 30 30];      % days shown (b = 0.005 needs longer: slow passage near y ~ 1-1.5)
+h    = 0.01;            % output step for ode45 (as in single_ode45.m)
+
+figure(3); set(gcf, 'Position', [100 100 1300 420]);
 for k = 1:3
     b = bvals(k);  e = eqs{k};
     yTop = 1.2*max(e);  if yTop < 3, yTop = 3; end
 
     subplot(1,3,k); hold on;
 
-    % direction field (arrows normalised to equal length)
-    [T, Y] = meshgrid(linspace(0, tEnd(k), 25), linspace(0, yTop, 25));
-    dY = f(Y, b);  dT = ones(size(dY));
-    L  = sqrt(dT.^2 + (dY*tEnd(k)/yTop).^2);        % scale to axis aspect
-    quiver(T, Y, dT./L, dY./L, 0.5, 'Color', [0.6 0.6 0.6]);
+    % dirfield.m evaluates func2str(f) inside its own workspace, where a, b,
+    % p, q do not exist, so the parameter values are written into the
+    % function as numbers with str2func.
+    fdir = str2func(sprintf('@(t,y) %.12g*y - %.12g*y.^2 - %.12g*y.^3./(y.^3 + %.12g)', ...
+                            a, b, p, q));
+    dirfield(fdir, linspace(0, tEnd(k), 25), linspace(0, yTop, 25), 0.5);
 
-    % equilibrium solutions
     for j = 1:numel(e)
-        if strcmp(stab{k}{j}, 'stable'), ls = 'r-'; else, ls = 'r--'; end
+        if strcmp(stab{k}{j}, 'stable'), ls = 'k-'; else, ls = 'k--'; end
         plot([0 tEnd(k)], [e(j) e(j)], ls, 'LineWidth', 1.5);
     end
 
-    % initial conditions: just above/below every equilibrium + spread across the range
-    ics = [e(:)' + 0.05*max(1,e(:)'), e(e>0) - 0.05*max(1,e(e>0)), ...
-           linspace(0.1, yTop, 8)];
-    ics = unique(ics(ics > 0 & ics <= yTop));
-    for y0 = ics
-        [t, y] = ode45(@(t,y) f(y,b), [0 tEnd(k)], y0, odeopts);
-        plot(t, y, 'b-', 'LineWidth', 1);
+    y0 = [e + 0.05*max(1,e), e(e>0) - 0.05*max(1,e(e>0)), linspace(0.1, yTop, 8)];
+    y0 = unique(y0(y0 > 0 & y0 <= yTop));
+
+    tt = 0:h:tEnd(k);
+    [t, soln] = ode45(@(t,y) f(y,b), tt, y0, options);
+    for i = 1:length(y0)
+        plot(t, soln(:,i), 'b-', 'LineWidth', 1);
     end
 
-    xlim([0 tEnd(k)]); ylim([0 yTop]);
+    axis([0 tEnd(k) 0 yTop]);
     xlabel('t (days)'); ylabel('y (hundreds of tribbles)');
     title(sprintf('Direction field, b = %.3g', b)); box on;
 end
 saveas(gcf, 'Q7_direction_fields.png');
 
-%% Q8(c)/Q9 - Supporting numbers for the long-term behaviour & stocking choice
 fprintf('Q8(c)/Q9: Long-term populations\n');
 for k = 1:3
     st = eqs{k}(strcmp(stab{k}, 'stable'));
@@ -173,45 +156,55 @@ fprintf(['  White tribbles need y0 > %.4f (about %d tribbles) to reach the\n' ..
          '  high equilibrium of %.0f tribbles; otherwise they settle at %.0f.\n\n'], ...
          e2(3), ceil(100*e2(3)), 100*e2(4), 100*e2(2));
 
-%% Q10 - Seasonal hunting  H(t,y) = p*y^3/(q+y^3) * |sin(pi*t/365)|
 Hs = @(t,y) p*y.^3 ./ (q + y.^3) .* abs(sin(pi*t/365));
-years = 5;  tspan = [0 365*years];
-opts10 = odeset(odeopts, 'MaxStep', 1);   % resolve the seasonal forcing
+years = 5;
+h  = 0.5;
+tt = 0:h:365*years;
+options10 = odeset(options, 'MaxStep', 1);
 
-figure('Name','Q10','Position',[100 100 1300 420]);
+figure(4); set(gcf, 'Position', [100 100 1300 750]);
 for k = 1:3
-    b = bvals(k);
-    subplot(1,3,k); hold on;
-    ics = unique([0.2 0.5 1 1.5 2 2.5 linspace(0.1, 1.1*a/b, 6)]);
-    for y0 = ics
-        [t, y] = ode45(@(t,y) a*y - b*y.^2 - Hs(t,y), tspan, y0, opts10);
-        plot(t/365, y, 'LineWidth', 1);
+    b  = bvals(k);
+    y0 = unique([0.2 0.5 1 1.5 2 2.5 linspace(0.1, 1.1*a/b, 6)]);
+    [t, soln] = ode45(@(t,y) a*y - b*y.^2 - Hs(t,y), tt, y0, options10);
+
+    % top row: 5 years
+    subplot(2,3,k); hold on;
+    for i = 1:length(y0)
+        plot(t/365, soln(:,i), 'LineWidth', 1);
     end
-    % reference: autonomous equilibria from Q6
-    for j = 1:numel(eqs{k})
+    for j = 1:numel(eqs{k})                 % constant-hunting equilibria (Q6)
         plot([0 years], [eqs{k}(j) eqs{k}(j)], 'k:');
     end
     xlabel('t (years)'); ylabel('y (hundreds of tribbles)');
     title(sprintf('Seasonal hunting, b = %.3g', b)); grid on; box on;
     xlim([0 years]);
+
+    subplot(2,3,k+3); hold on;
+    early = t <= 30;
+    for i = 1:length(y0)
+        plot(t(early), soln(early,i), 'LineWidth', 1);
+    end
+    xlabel('t (days)'); ylabel('y (hundreds of tribbles)');
+    title(sprintf('First 30 days, b = %.3g', b)); grid on; box on;
 end
 saveas(gcf, 'Q10_seasonal_hunting.png');
 
-% Zoom on one year for b = 0.05 to show the seasonal oscillation
-figure('Name','Q10 detail');
-b = 0.05;
+figure(5);
+b  = 0.05;
+y0 = [0.5 1 1.5 2 2.5 5 10 15];
+[t, soln] = ode45(@(t,y) a*y - b*y.^2 - Hs(t,y), tt, y0, options10);
 subplot(2,1,1); hold on;
-for y0 = [0.5 1 1.5 2 2.5 5 10 15]
-    [t, y] = ode45(@(t,y) a*y - b*y.^2 - Hs(t,y), tspan, y0, opts10);
-    plot(t, y, 'LineWidth', 1);
+for i = 1:length(y0)
+    plot(t, soln(:,i), 'LineWidth', 1);
 end
 ylabel('y (hundreds of tribbles)');
-title('Seasonal hunting, b = 0.05'); grid on; xlim(tspan);
+title('Seasonal hunting, b = 0.05'); grid on; xlim([tt(1) tt(end)]);
 subplot(2,1,2);
-tt = linspace(tspan(1), tspan(2), 2000);
-plot(tt, abs(sin(pi*tt/365)), 'k-');
+plot(t, abs(sin(pi*t/365)), 'k-');
 xlabel('t (days)'); ylabel('|sin(\pi t/365)|');
-title('Hunting intensity (0 = midwinter, 1 = midsummer)'); grid on; xlim(tspan);
+title('Hunting intensity (0 = midwinter, 1 = midsummer)'); grid on;
+xlim([tt(1) tt(end)]);
 saveas(gcf, 'Q10_seasonal_b005_detail.png');
 
 fprintf('Done. Figures saved as PNG files in: %s\n', pwd);
